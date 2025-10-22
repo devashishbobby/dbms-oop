@@ -5,13 +5,15 @@ import java.awt.*;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 public class ProfileDialog extends JDialog {
 
     private int userId;
     private String username;
-    // --- NEW: UI component to display the picture ---
     private JLabel profilePictureLabel;
 
     public ProfileDialog(Frame parent, int userId, String username) {
@@ -23,7 +25,6 @@ public class ProfileDialog extends JDialog {
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout(10, 10));
 
-        // --- NEW: Main panel to hold profile info and picture ---
         JPanel topPanel = new JPanel(new BorderLayout(15, 15));
         topPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
@@ -42,7 +43,6 @@ public class ProfileDialog extends JDialog {
         usernameLabel.setFont(new Font("Arial", Font.BOLD, 16));
         infoPanel.add(usernameLabel);
         
-        // --- NEW: Button to change the picture ---
         JButton changePictureButton = new JButton("Change Picture");
         infoPanel.add(Box.createRigidArea(new Dimension(0, 10))); // Spacer
         infoPanel.add(changePictureButton);
@@ -55,23 +55,23 @@ public class ProfileDialog extends JDialog {
         add(topPanel, BorderLayout.NORTH);
         add(new JScrollPane(reviewsArea), BorderLayout.CENTER);
 
-        // --- NEW: Action Listener for the change picture button ---
         changePictureButton.addActionListener(e -> selectAndSaveProfilePicture());
 
-        // --- Load all profile data (info, picture, reviews) ---
+        // Load all profile data
         loadUserProfile(infoPanel, reviewsArea);
     }
 
     private void loadUserProfile(JPanel infoPanel, JTextArea reviewsArea) {
-        // --- MODIFIED: This now fetches all user data in one go ---
-        String sql = "SELECT email, join_date, profile_picture_path FROM Users WHERE user_id = ?";
+        // --- CORRECTED: This query no longer asks for the non-existent 'join_date' column ---
+        String sql = "SELECT email, profile_picture_path FROM Users WHERE user_id = ?";
         try (Connection conn = DatabaseConnector.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            
             pstmt.setInt(1, this.userId);
             ResultSet rs = pstmt.executeQuery();
+
             if (rs.next()) {
                 infoPanel.add(new JLabel("Email: " + rs.getString("email")));
-                infoPanel.add(new JLabel("Member Since: " + rs.getDate("join_date").toString()));
                 
                 // Load the profile picture
                 String imagePath = rs.getString("profile_picture_path");
@@ -81,13 +81,11 @@ public class ProfileDialog extends JDialog {
             infoPanel.add(new JLabel("Could not load user details."));
         }
         
-        // Load reviews separately
         loadUserReviews(reviewsArea);
     }
     
     private void selectAndSaveProfilePicture() {
         JFileChooser fileChooser = new JFileChooser();
-        // Filter for image files only
         FileNameExtensionFilter filter = new FileNameExtensionFilter("Images", "jpg", "png", "gif", "jpeg");
         fileChooser.setFileFilter(filter);
         
@@ -95,24 +93,18 @@ public class ProfileDialog extends JDialog {
         if (result == JFileChooser.APPROVE_OPTION) {
             File selectedFile = fileChooser.getSelectedFile();
             try {
-                // Create the destination directory if it doesn't exist
                 File destDir = new File("profile_pics");
                 if (!destDir.exists()) {
                     destDir.mkdir();
                 }
 
-                // Standardize the filename to "userid.png" for simplicity
-                String newFileName = this.userId + ".png";
+                String newFileName = this.userId + "_" + selectedFile.getName();
                 File destFile = new File(destDir, newFileName);
 
-                // Copy the selected file to our project's folder
                 Files.copy(selectedFile.toPath(), destFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                 
-                // Now, save the path to the database
-                String dbPath = destFile.getPath();
+                String dbPath = destFile.getPath().replace("\\", "/");
                 updateProfilePicturePath(dbPath);
-
-                // Finally, update the displayed image
                 displayProfilePicture(dbPath);
 
             } catch (Exception ex) {
@@ -135,13 +127,11 @@ public class ProfileDialog extends JDialog {
     private void displayProfilePicture(String imagePath) {
         ImageIcon profileIcon;
         if (imagePath != null && new File(imagePath).exists()) {
-            // If a path exists and the file is found, load it
             profileIcon = new ImageIcon(imagePath);
-            // Scale the image to fit the 100x100 label
             Image scaledImage = profileIcon.getImage().getScaledInstance(100, 100, Image.SCALE_SMOOTH);
             profilePictureLabel.setIcon(new ImageIcon(scaledImage));
+            profilePictureLabel.setText(""); // Clear text when image is present
         } else {
-            // Otherwise, show a placeholder
             profilePictureLabel.setText("No Image");
             profilePictureLabel.setIcon(null);
         }
